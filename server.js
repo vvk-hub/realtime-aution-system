@@ -1,33 +1,32 @@
+
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const { Pool } = require('pg');
 const path = require('path');
+const parseDbUrl = require('pg-connection-string').parse; // Add the manual URL string parser
 require('dotenv').config();
 
 const app = express();
 app.use(express.json());
 
-// Serve static React production build files directly from Express
 app.use(express.static(path.join(__dirname, 'frontend/dist')));
 
 let pool;
 
-// 1. Production Mode: Isolate cloud connectionString from local parameter keys
 if (process.env.DATABASE_URL) {
-  // Clean the string protocol to handle postgresql:// variants cleanly
-  let cloudUrl = process.env.DATABASE_URL.trim();
-  if (cloudUrl.startsWith('postgresql://')) {
-    cloudUrl = cloudUrl.replace('postgresql://', 'postgres://');
-  }
-
-  // Pass ONLY the connectionString string to the pool instance
+  // Manually parse the protected Render connection URL into individual parameters
+  const dbConfig = parseDbUrl(process.env.DATABASE_URL.trim());
+  
   pool = new Pool({
-    connectionString: cloudUrl,
-    ssl: { rejectUnauthorized: false } // Required for Render secure database clusters
+    user: dbConfig.user,
+    password: dbConfig.password,
+    host: dbConfig.host,
+    port: dbConfig.port,
+    database: dbConfig.database,
+    ssl: { rejectUnauthorized: false } // Required by Render cloud databases for SSL verification security
   });
 } else {
-  // 2. Development Mode: Fall back to your local environment fallback configurations entirely
   pool = new Pool({
     user: 'postgres',
     password: 'YOUR_LOCAL_PASSWORD_HERE', // Keep your local computer database password here
