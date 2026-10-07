@@ -50,7 +50,7 @@ if (process.env.DATABASE_URL && typeof process.env.DATABASE_URL === 'string' && 
   // 2. Local fallback parameters remain untouched for standard offline tracking loops
   pool = new Pool({
     user: 'postgres',
-    password: 'YOUR_LOCAL_PASSWORD_HERE', // Keep your local computer database password here
+    password: '2007', // Keep your local computer database password here
     host: 'localhost',
     port: 5432,
     database: 'auction_db',
