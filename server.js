@@ -7,15 +7,20 @@ require('dotenv').config();
 const app = express();
 app.use(express.json());
 
-// Initialize PostgreSQL Connection Pool using separate credentials
-// Replace the old pool block with this direct config object:
+// This tells the pool to automatically read the Render URL if available,
+// otherwise it uses your local setup parameters.
 const pool = new Pool({
-  user: 'postgres',              // Force it to use the admin user instead of your Windows name
-  password: '2007', // Put your actual database password here directly
-  host: 'localhost',
-  port: 5432,
-  database: 'auction_db'
+  connectionString: process.env.DATABASE_URL,
+  // If connectionString is empty, it falls back to these local objects:
+  user: process.env.DATABASE_URL ? undefined : 'postgres',
+  password: process.env.DATABASE_URL ? undefined : 'YOUR_LOCAL_PASSWORD_HERE', // Keep your local database password here
+  host: process.env.DATABASE_URL ? undefined : 'localhost',
+  port: process.env.DATABASE_URL ? undefined : 5432,
+  database: process.env.DATABASE_URL ? undefined : 'auction_db',
+  // Required by Render cloud databases for SSL verification security
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
+
 
 
 const server = http.createServer(app);
