@@ -2,26 +2,30 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const { Pool } = require('pg');
+const path = require('path'); // Added path utility to serve production files cleanly
 require('dotenv').config();
 
 const app = express();
 app.use(express.json());
 
-// This tells the pool to automatically read the Render URL if available,
-// otherwise it uses your local setup parameters.
+// Serve static React production build files directly from Express
+app.use(express.static(path.join(__dirname, 'frontend/dist')));
+
+// Clean the incoming URL string to handle postgresql:// vs postgres:// discrepancies
+let connectionString = process.env.DATABASE_URL;
+if (connectionString && connectionString.startsWith('postgresql://')) {
+  connectionString = connectionString.replace('postgresql://', 'postgres://');
+}
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  // If connectionString is empty, it falls back to these local objects:
-  user: process.env.DATABASE_URL ? undefined : 'postgres',
-  password: process.env.DATABASE_URL ? undefined : 'YOUR_LOCAL_PASSWORD_HERE', // Keep your local database password here
-  host: process.env.DATABASE_URL ? undefined : 'localhost',
-  port: process.env.DATABASE_URL ? undefined : 5432,
-  database: process.env.DATABASE_URL ? undefined : 'auction_db',
-  // Required by Render cloud databases for SSL verification security
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+  connectionString: connectionString || undefined,
+  user: connectionString ? undefined : 'postgres',
+  password: connectionString ? undefined : 'YOUR_LOCAL_PASSWORD_HERE', // Keep your local database password here
+  host: connectionString ? undefined : 'localhost',
+  port: connectionString ? undefined : 5432,
+  database: connectionString ? undefined : 'auction_db',
+  ssl: connectionString ? { rejectUnauthorized: false } : false
 });
-
-
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
@@ -32,7 +36,6 @@ const clients = new Set();
 wss.on('connection', (ws) => {
   clients.add(ws);
   
-  // Clean up references immediately upon disconnect to prevent memory leaks
   ws.on('close', () => {
     clients.delete(ws);
   });
@@ -45,8 +48,6 @@ wss.on('connection', (ws) => {
   
   client.on('notification', (msg) => {
     const payload = JSON.parse(msg.payload);
-    
-    // Broadcast the real-time event to all connected clients
     const outboundData = JSON.stringify(payload);
     clients.forEach((ws) => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -57,19 +58,19 @@ wss.on('connection', (ws) => {
 })().catch(err => console.error('PG Listen Connection Failure:', err));
 
 /**
- * HTTP REST API Route: Fetch current state of an item (for fresh load / reconnects)
+ * HTTP REST API Route: Fetch current state of an item
  */
 app.get('/api/items/:id', async (req, res) => {
   try {
     const itemId = parseInt(req.params.id);
     
-    // Fetch master item state (Cleaned up \$1 to \$1)
+    // Cleaned up \$1 to a normal \$1 parameter
     const itemRes = await pool.query('SELECT * FROM items WHERE id = \$1', [itemId]);
     if (itemRes.rows.length === 0) {
       return res.status(404).json({ error: 'Item not found' });
     }
     
-    // Fetch top historical bids for context tracking (Cleaned up \$1 to \$1)
+    // Cleaned up \$1 to a normal \$1 parameter
     const bidsRes = await pool.query(
       'SELECT bidder_name, amount, created_at FROM bids WHERE item_id = \$1 ORDER BY amount DESC LIMIT 10',
       [itemId]
@@ -95,16 +96,18 @@ app.post('/api/bids', async (req, res) => {
   }
 
   try {
-    // Execute the atomic, locked database operation function (Cleaned up parameters)
+    // Cleaned up parameters from (\$1, \$2, \$3) to normal syntax (\$1, \$2, \$3)
     await pool.query('SELECT place_bid_secure(\$1, \$2, \$3)', [itemId, bidderName, parseFloat(amount)]);
-    
-    // Return success to the caller immediately.
     return res.json({ success: true, message: 'Bid successfully verified and locked.' });
   } catch (err) {
-    // Check if exception was thrown manually by our PL/pgSQL database constraints
     const message = err.message || 'Transaction aborted due to concurrency conflict.';
     return res.status(409).json({ error: message });
   }
+});
+
+// Catch-all route to serve React's index.html for any frontend navigation routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'frontend/dist', 'index.html'));
 });
 
 const PORT = process.env.PORT || 5000;
