@@ -14,19 +14,40 @@ app.use(express.static(path.join(__dirname, 'frontend/dist')));
 
 let pool;
 
-if (process.env.DATABASE_URL) {
-  // Manually parse the protected Render connection URL into individual parameters
-  const dbConfig = parseDbUrl(process.env.DATABASE_URL.trim());
+// 1. Strict validation: Verify DATABASE_URL exists, is a string, and isn't empty or blank spaces
+if (process.env.DATABASE_URL && typeof process.env.DATABASE_URL === 'string' && process.env.DATABASE_URL.trim() !== '') {
   
-  pool = new Pool({
-    user: dbConfig.user,
-    password: dbConfig.password,
-    host: dbConfig.host,
-    port: dbConfig.port,
-    database: dbConfig.database,
-    ssl: { rejectUnauthorized: false } // Required by Render cloud databases for SSL verification security
-  });
+  let cloudUrl = process.env.DATABASE_URL.trim();
+  
+  // Clean the string protocol to handle postgresql:// vs postgres:// discrepancies cleanly
+  if (cloudUrl.startsWith('postgresql://')) {
+    cloudUrl = cloudUrl.replace('postgresql://', 'postgres://');
+  }
+
+  try {
+    // Manually parse the validated connection URL string parameters securely
+    const dbConfig = parseDbUrl(cloudUrl);
+    
+    pool = new Pool({
+      user: dbConfig.user,
+      password: dbConfig.password,
+      host: dbConfig.host,
+      port: dbConfig.port,
+      database: dbConfig.database,
+      ssl: { rejectUnauthorized: false } // Required by Render cloud databases for SSL verification security
+    });
+    
+    console.log("Database parameters parsed successfully for production execution.");
+  } catch (parseError) {
+    console.error("Critical URL string evaluation failure. Falling back to discrete object layout:", parseError.message);
+    // Dynamic fallback if parsing hits unexpected string exceptions
+    pool = new Pool({
+      connectionString: cloudUrl,
+      ssl: { rejectUnauthorized: false }
+    });
+  }
 } else {
+  // 2. Local fallback parameters remain untouched for standard offline tracking loops
   pool = new Pool({
     user: 'postgres',
     password: 'YOUR_LOCAL_PASSWORD_HERE', // Keep your local computer database password here
@@ -35,7 +56,9 @@ if (process.env.DATABASE_URL) {
     database: 'auction_db',
     ssl: false
   });
+  console.log("Application initialized in local developer configuration status.");
 }
+
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
