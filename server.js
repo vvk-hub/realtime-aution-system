@@ -106,9 +106,11 @@ app.post('/api/bids', async (req, res) => {
 });
 
 // Catch-all route to serve React's index.html for any frontend navigation routes
-app.get('*', (req, res) => {
+// Change from app.get('*', ...) to this modern Express 5 syntax structure:
+app.get('*path', (req, res) => {
   res.sendFile(path.join(__dirname, 'frontend/dist', 'index.html'));
 });
+
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
