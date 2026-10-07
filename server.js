@@ -1,18 +1,19 @@
-
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-const { Pool } = require('pg');
+const { Pool, Client } = require('pg'); // Added discrete Client module for real-time streaming
 const path = require('path');
-const parseDbUrl = require('pg-connection-string').parse; // Add the manual URL string parser
+const parseDbUrl = require('pg-connection-string').parse; 
 require('dotenv').config();
 
 const app = express();
 app.use(express.json());
 
+// Serve static React production build files directly from Express
 app.use(express.static(path.join(__dirname, 'frontend/dist')));
 
 let pool;
+let listenerClient; // Dedicated persistent client to eliminate background URL exceptions
 
 // 1. Strict validation: Verify DATABASE_URL exists, is a string, and isn't empty or blank spaces
 if (process.env.DATABASE_URL && typeof process.env.DATABASE_URL === 'string' && process.env.DATABASE_URL.trim() !== '') {
@@ -28,6 +29,7 @@ if (process.env.DATABASE_URL && typeof process.env.DATABASE_URL === 'string' && 
     // Manually parse the validated connection URL string parameters securely
     const dbConfig = parseDbUrl(cloudUrl);
     
+    // Config for standard HTTP requests
     pool = new Pool({
       user: dbConfig.user,
       password: dbConfig.password,
@@ -36,21 +38,37 @@ if (process.env.DATABASE_URL && typeof process.env.DATABASE_URL === 'string' && 
       database: dbConfig.database,
       ssl: { rejectUnauthorized: false } // Required by Render cloud databases for SSL verification security
     });
+
+    // Dedicated config object for the long-lived real-time WebSocket event listener
+    listenerClient = new Client({
+      user: dbConfig.user,
+      password: dbConfig.password,
+      host: dbConfig.host,
+      port: dbConfig.port,
+      database: dbConfig.database,
+      ssl: { rejectUnauthorized: false }
+    });
     
     console.log("Database parameters parsed successfully for production execution.");
   } catch (parseError) {
-    console.error("Critical URL string evaluation failure. Falling back to discrete object layout:", parseError.message);
-    // Dynamic fallback if parsing hits unexpected string exceptions
-    pool = new Pool({
-      connectionString: cloudUrl,
-      ssl: { rejectUnauthorized: false }
-    });
+    console.error("Critical URL string evaluation failure. Falling back to discrete connectionString object layout:", parseError.message);
+    pool = new Pool({ connectionString: cloudUrl, ssl: { rejectUnauthorized: false } });
+    listenerClient = new Client({ connectionString: cloudUrl, ssl: { rejectUnauthorized: false } });
   }
 } else {
   // 2. Local fallback parameters remain untouched for standard offline tracking loops
   pool = new Pool({
     user: 'postgres',
-    password: '2007', // Keep your local computer database password here
+    password: '2007', // Your local computer database password
+    host: 'localhost',
+    port: 5432,
+    database: 'auction_db',
+    ssl: false
+  });
+
+  listenerClient = new Client({
+    user: 'postgres',
+    password: '2007',
     host: 'localhost',
     port: 5432,
     database: 'auction_db',
@@ -58,7 +76,6 @@ if (process.env.DATABASE_URL && typeof process.env.DATABASE_URL === 'string' && 
   });
   console.log("Application initialized in local developer configuration status.");
 }
-
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
@@ -74,12 +91,12 @@ wss.on('connection', (ws) => {
   });
 });
 
-// Subscribe to PostgreSQL Notifications via a dedicated client connection
+// Subscribe to PostgreSQL Notifications via the dedicated listenerClient configuration instance
 (async function subscribeToDbEvents() {
-  const client = await pool.connect();
-  await client.query('LISTEN auction_updates');
+  await listenerClient.connect(); // Bypasses pool parsing bugs dynamically
+  await listenerClient.query('LISTEN auction_updates');
   
-  client.on('notification', (msg) => {
+  listenerClient.on('notification', (msg) => {
     const payload = JSON.parse(msg.payload);
     const outboundData = JSON.stringify(payload);
     clients.forEach((ws) => {
