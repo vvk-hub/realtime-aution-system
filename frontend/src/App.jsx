@@ -16,7 +16,10 @@ export default function App() {
       const response = await fetch(`/api/items/${itemId}`);
       if (!response.ok) throw new Error('Failed to fetch state data.');
       const data = await response.json();
-      setItem(data.item);
+      
+      // Adjusted configuration selector to handle database row array syntax perfectly
+      const targetItem = Array.isArray(data.item) ? data.item[0] : data.item;
+      setItem(targetItem);
       setHistory(data.history);
     } catch (err) {
       console.error('State reconciliation failure:', err);
@@ -27,8 +30,12 @@ export default function App() {
     fetchCurrentState();
 
     function connectWebSocket() {
-      // Point the WebSocket connection directly to our backend server port
-      const wsUrl = 'ws://localhost:5000';
+      // ✅ Dynamically switches protocols and maps to Render or localhost domains cleanly
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host; 
+      const wsUrl = `${protocol}//${host}`;
+      
+      console.log(`Connecting stream core to: ${wsUrl}`);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
