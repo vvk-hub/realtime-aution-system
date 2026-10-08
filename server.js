@@ -147,9 +147,11 @@ app.post('/api/bids', async (req, res) => {
 });
 
 // Catch-all route to serve React's index.html for any frontend navigation routes
-app.get('*', (req, res) => {
+// ✅ New syntax matching modern path-to-regexp requirements
+app.get('*path', (req, res) => {
   res.sendFile(path.join(__dirname, 'frontend/dist', 'index.html'));
 });
+
 
 // Render expects 10000 natively unless overridden
 const PORT = process.env.PORT || 10000;
